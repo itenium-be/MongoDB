@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  mongodb:
+    container_name: mongo-consumers
+    image: mongo
+    restart: always
+    volumes:
+      - ./customers/mongo-db:/data/db
+      - ./customers/mongo-seed/data:/database/mongo-seed
+      - ./customers/mongo-seed/import.sh:/docker-entrypoint-initdb.d/import.sh
+    ports:
+      - 27017:27017
+
+  mongo-client:
+    container_name: mongo-client
+    image: mongoclient/mongoclient
+    restart: always
+    ports:
+      - 27018:3000
