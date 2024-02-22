@@ -102,3 +102,9 @@ Expected resulting structure:
   }]
 }
 ```
+
+
+#### Security
+
+A security audit has revealed that an unprotected mongo is maybe not such a great idea.  
+Add a user with readWrite access and disable connections without credentials.
