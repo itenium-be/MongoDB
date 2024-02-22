@@ -6,7 +6,7 @@ services:
     image: mongo
     restart: always
     volumes:
-      - db:/data/db
+      - data-db:/data/db
       - ./customers/mongo-seed/data:/database/mongo-seed
       - ./customers/mongo-seed/import.sh:/docker-entrypoint-initdb.d/import.sh
     ports:
@@ -20,4 +20,4 @@ services:
       - 27018:3000
 
 volumes:
-  db:
+  data-db:
