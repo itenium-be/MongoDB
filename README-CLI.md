@@ -21,13 +21,23 @@ db.customers.find().pretty()
 db.customers.find({name: 'Tom'}).count()
 db.customers.estimatedDocumentCount()
 db.customers.find({name: 'Tom'}).skip(5).limit(5)
-db.customers.find({name: 'Tom'}).sort({lastName: 1}) // descending == -1
+db.customers.distinct('name')
+db.customers.find({}).sort({name: 1}) // descending == -1
 db.customers.findOne({name: 'Tom'})
 
 // Also insertMany([...])
 db.customers.insertOne({
+  _id: ObjectId("5099803df3f4948bd2f98391"),
+  active: true,
   name: 'Tomas',
-  createdOn: Date()
+  audit: {
+    createdOn: new Date(),
+    modifiedBy: [{
+      by: 'admin', // in a query: audit.modifiedBy.0.by
+      on: Date()
+    }]
+  },
+  profileViews: NumberLong(1250000)
 })
 
 // remove vs delete: different return type
@@ -36,30 +46,36 @@ db.customers.deleteOne({name: 'Tomas'}) // also deleteMany
 db.customers.drop()
 ```
 
+
 ### Updating
 
 ```js
-db.customers.updateOne({name: 'Tomas'}, {
-  $set: {name: 'Thomas'},
+db.customers.updateOne(
+  {name: 'Tomas'},
+  {$set: {name: 'Thomas'}},
   {upsert: true}
+)
+
+db.customers.updateOne({
+  $unset: {name: ''}
 })
 
-db.customers.updateOne({ $unset: { name: '' } })
+db.customers.updateMany(
+  {name: 'Tomas'},
+  {$inc: {age: 1}}
+)
 
-db.customers.update({name: 'Tomas'}, {
-  $inc: {age: 1}
-})
+db.customers.updateMany(
+  {name: 'Tomas'},
+  {$rename: {name: 'firstName'}}
+)
 
-db.customers.update({name: 'Tomas'}, {
-  $rename: {name: 'firstName'}
-})
-
-// Update the score only if it is lower than 150
-db.scores.insertOne( { _id: 1, score: 200 } )
-db.scores.updateOne( { _id: 1 }, { $min: { score: 150 } } )
+// Update the score to 150 only if it is currently higher than 150
+db.scores.insertOne({_id: 1, score: 200})
+db.scores.updateOne({_id: 1}, {$min: {score: 150}})
 ```
 
-Or with a loop
+Or update with a loop:
 
 ```js
 db.customers.find().forEach(function(doc) {
@@ -99,80 +115,101 @@ db.killOp(345)
 // Projection: choose which fields to return
 db.customers.find({}, {name: true, createdOn: false})
 
-db.customers.find({name: {$regex: 'Th?om(as)?\\b'}})
-db.customers.find({name: /th?om(as)?\b/i})
-
-
+db.customers.find({name: {$regex: 'Tom\\b'}})
+db.customers.find({name: /^t/i})
 
 db.comments.find({member_since: {$lt: 90}})
-db.comments.find({member_since: {$lte: 90}})
-db.comments.find({member_since: {$gt: 90}})
-db.comments.find({member_since: {$gte: 90}})
-
-$ne : not equal
-$exists : db.coll.find({name: {$exists: true}})
-$type : db.coll.find({'zipCode': {$type: 'string'}}) // int, object, date, double, binData, ...
-$or: [{name: 'Tomas'}, {name: 'Thomas'}] // $and, $nor
+// $lte (less than or equal), $gt (greater than), $gte, $ne (not equal)
+// $exists: find({name: {$exists: true}})
+// $type: find({'zipCode': {$type: 'string'}}) // int, object, date, double, binData, ...
+// $or: [{name: 'Tomas'}, {name: 'Thomas'}] // $and, $nor, $not
 ```
 
 
 ### Dates
 
+`new Date()` or `ISODate()`
+
 ```js
 db.customers.find({birthdate: {$lt: ISODate("1968-01-01T00:00:00.000Z")}})
+
+// Date operators:
+// $dateAdd/Trunc, $dateDiff, $dateFrom/ToParts/String, $dayOfYear/Month/Week, $hour/$year
 ```
+
 
 ### Aggregating
 
 ```js
-$sum: db.docx.aggregate([{$group : {_id : "$operator", num_docx : {$sum : "$value"}}}])
-$avg: db.docx.aggregate([{$group : {_id : "$operator", num_docx : {$avg : "$value"}}}])
-
-$min / $max: db.docx.aggregate([{$group : {_id : "$operator", num_docx : {$min : "$value"}}}])
-
-$first / $last: db.docx.aggregate([{$group : {_id : "$operator", last_class : {$last : "$value"}}}])
-
-db.users.aggregate([
-  {$match: {access: "valid"}},
-  {$group: {_id: "$cust_id", total: {$sum: "$amount" }}},
-  {$sort: {total: -1}}
+// Also: $min, $max, $count, $first/$last
+db.customers.aggregate([
+  { $group: {
+    _id: {$year: '$birthdate'},
+    count: {$sum: 1}
+  }}
 ])
 
 
-db.users.distinct('name')
-// Also: mapReduce?
+// Average on a Date
+db.customers.aggregate([
+  {$match: {username: {$ne: null}}},
+  {$addFields: {numericBirthDate: {$toLong: '$birthdate'}}},
+  {
+    $group: {
+      _id: {$year: '$birthdate'},
+      averageNumericBirthDate: {$avg: '$numericBirthDate'},
+      count: {$sum: 1}
+    }
+  },
+  {$addFields: {averageBirthDate: {$dateToString: {format: '%Y-%m-%d', date: {$toDate: '$averageNumericBirthDate'}}}}},
+  {$project: {year: '$_id', count: 1, averageBirthDate: 1, _id: 0}},
+  {$sort: {year: -1}},
+  {$limit: 5}
+])
 
 
-// Arrays
-$push: db.docx.aggregate([{$group : {_id : "$operator", classes : {$push: "$value"}}}])
-$addToSet (no duplicates): db.docx.aggregate([{$group : {_id : "$operator", classes : {$addToSet : "$value"}}}])
+db.collection('locations').find({
+  location: {
+    $near: {
+      $geometry: {type: 'Point', coordinates: [longitude, latitude]},
+      $maxDistance: 1000
+    }
+  }
+})
 
-db.coll.find({tags: {$all: ["Realm", "Charts"]}})
-db.coll.find({field: {$size: 2}}) // impossible to index - prefer storing the size of the array & update it
-db.coll.find({results: {$elemMatch: {product: "xyz", score: {$gte: 8}}}})
 
-db.coll.updateOne({"_id": 1}, {$push :{"array": 1}})
-db.coll.updateOne({"_id": 1}, {$pull :{"array": 1}})
-db.coll.updateOne({"_id": 1}, {$addToSet :{"array": 2}})
-db.coll.updateOne({"_id": 1}, {$pop: {"array": 1}})  // last element
-db.coll.updateOne({"_id": 1}, {$pop: {"array": -1}}) // first element
-db.coll.updateOne({"_id": 1}, {$pullAll: {"array" :[3, 4, 5]}})
-db.coll.updateOne({"_id": 1}, {$push: {"scores": {$each: [90, 92]}}})
-db.coll.updateOne({"_id": 2}, {$push: {"scores": {$each: [40, 60], $sort: 1}}}) // array sorted
-db.coll.updateOne({"_id": 1, "grades": 80}, {$set: {"grades.$": 82}})
+// find({accounts: {$size: {$gt: 5}}}) is not allowed
+db.customers.aggregate([
+  {$match: {$expr: {$gt: [{$size: '$accounts'}, 5]}}}
+])
+```
+
+### Arrays
+
+[Array Examples](https://www.mongodb.com/docs/manual/tutorial/query-arrays/#std-label-read-operations-arrays)
+
+
+```js
+// impossible to index - prefer storing the size of the array & update it
+db.customers.find({accounts: {$size: 0}})
+
+db.coll.updateOne({_id: 1}, {$push: {array: 1}})
+db.coll.updateOne({_id: 1}, {$pull: {array: 1}})
+db.coll.updateOne({_id: 1}, {$addToSet: {array: 2}})
+db.coll.updateOne({_id: 1}, {$pop: {array: 1}}) // last element
+db.coll.updateOne({_id: 1}, {$pop: {array: -1}}) // first element
+db.coll.updateOne({_id: 1}, {$pullAll: {array: [3, 4, 5]}})
+
+// $[] : positional all
 db.coll.updateMany({}, {$inc: {"grades.$[]": 10}})
-db.coll.updateMany({}, {$set: {"grades.$[element]": 100}}, {multi: true, arrayFilters: [{"element": {$gte: 100}}]})
 
-// FindOneAndUpdate
-
-
-
-db.posts.find({
-  comments: { $elemMatch: { name: 'Thomas' } } }
+// $[el] with arrayFilters
+// Set all grades >100 to 100
+db.coll.updateMany(
+  {},
+  {$set: {'grades.$[element]': 100}},
+  {multi: true, arrayFilters: [{'element': {$gt: 100}}]}
 )
-// Also: $in, $nin
-
-
 ```
 
 
@@ -211,7 +248,26 @@ db.customers.totalSize()
 
 ## Other
 
+### Lookup
+
+Aggregate function to "LEFT JOIN" another collection.
+
+```ts
+{
+  $lookup: {
+    from: <collection to join>,
+    localField: <field from the input documents>,
+    foreignField: <field from the documents of the "from" collection>,
+    as: <output array field>
+  }
+}
+```
+
+
+
 ### Change Streams
+
+Real-time notifications on collection changes with a cursor.
 
 ```js
 watchCursor = db.docx.watch( [ { $match : {'operationType' : 'insert' } } ] )
