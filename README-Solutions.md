@@ -14,6 +14,10 @@ db.customers.find({
 db.customers.find({
   birthdate: {$gte: ISODate("1968-01-01"), $lt: ISODate("1971-01-01")}
 })
+
+db.customers.aggregate([{$match: {
+  birthdate: {$gte: ISODate("1968-01-01"), $lt: ISODate("1971-01-01")}}
+}])
 ```
 
 
@@ -34,7 +38,7 @@ db.customers.find({
 ## Thomas, Tomas or Tom
 
 ```js
-db.customers.find({name: /Th?om(as)?\b/})
+db.customers.find({name: /(Th?omas|Tom)\b/})
 
 db.customers.find({name: {$in: ['Thomas', 'Tomas', 'Tom']}})
 
@@ -111,6 +115,28 @@ db.customers.updateMany(
   {},
   {$pull: {accounts: {$in: [null, '']}}}
 )
+
+
+
+db.customers.aggregate([
+  {$match: {accounts: /\d+/}},
+  {
+    $project: {
+      intAccounts: {
+        $map: {
+          input: "$accounts",
+          as: "accountNr",
+          in: { $toInt: "$$accountNr" }
+        }
+      }
+    }
+  }
+]).forEach(function(acc) {
+  db.customers.updateOne(
+    {_id: acc._id},
+    {$set: {accounts: acc.intAccounts}}
+  )
+})
 ```
 
 
@@ -148,6 +174,21 @@ db.customers.aggregate([
   // Add to perform a count()
   // , {$group: {_id: null, count: {$sum: 1}}}
 ])
+
+
+// Alternative solution
+db.customers.find({
+  tier_and_details: {
+    $elemMatch: {
+      tier: 'Platinum',
+      benefits: {
+        $not: {
+          $elemMatch: { $eq: 'dedicated account representative' }
+        }
+      }
+    }
+  }
+})
 ```
 
 
